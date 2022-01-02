@@ -1,0 +1,199 @@
+diff --git a/app/scripts/views/open-view.js b/app/scripts/views/open-view.js
+index 580b5ceb..0f7dfe37 100644
+--- a/app/scripts/views/open-view.js
++++ b/app/scripts/views/open-view.js
+@@ -25,6 +25,8 @@ import { GeneratorView } from 'views/generator-view';
+ import { NativeModules } from 'comp/launcher/native-modules';
+ import template from 'templates/open.hbs';
+ 
++const onlykey = require("@trustcrypto/node-onlykey");
++
+ const logger = new Logger('open-view');
+ 
+ class OpenView extends View {
+@@ -68,7 +70,7 @@ class OpenView extends View {
+         super(model);
+         window.$ = $;
+         this.resetParams();
+-        this.passwordInput = new SecureInput();
++        // this.passwordInput = new SecureInput();
+         this.onKey(Keys.DOM_VK_Z, this.undoKeyPress, KeyHandler.SHORTCUT_ACTION, 'open');
+         this.onKey(Keys.DOM_VK_TAB, this.tabKeyPress, null, 'open');
+         this.onKey(Keys.DOM_VK_ENTER, this.enterKeyPress, null, 'open');
+@@ -78,9 +80,9 @@ class OpenView extends View {
+         this.listenTo(Events, 'main-window-focus', this.windowFocused.bind(this));
+         this.listenTo(Events, 'usb-devices-changed', this.usbDevicesChanged.bind(this));
+         this.listenTo(Events, 'unlock-message-changed', this.unlockMessageChanged.bind(this));
+-        this.once('remove', () => {
+-            this.passwordInput.reset();
+-        });
++        // this.once('remove', () => {
++        //     this.passwordInput.reset();
++        // });
+         this.listenTo(Events, 'user-idle', this.userIdle);
+     }
+ 
+@@ -133,7 +135,7 @@ class OpenView extends View {
+             showLogo
+         });
+         this.inputEl = this.$el.find('.open__pass-input');
+-        this.passwordInput.setElement(this.inputEl);
++        // this.passwordInput.setElement(this.inputEl);
+     }
+ 
+     resetParams() {
+@@ -356,8 +358,8 @@ class OpenView extends View {
+ 
+     displayOpenDeviceOwnerAuth() {
+         const available = !!this.encryptedPassword;
+-        const passEmpty = !this.passwordInput.length;
+-        const canUseEncryptedPassword = available && passEmpty;
++        // const passEmpty = !this.passwordInput.length;
++        const canUseEncryptedPassword = available ;//&& passEmpty;
+         this.el
+             .querySelector('.open__pass-enter-btn')
+             .classList.toggle('open__pass-enter-btn--touch-id', canUseEncryptedPassword);
+@@ -666,6 +668,7 @@ class OpenView extends View {
+     }
+ 
+     openDb() {
++        var self = this;
+         if (this.params.id && this.model.files.get(this.params.id)) {
+             this.emit('close');
+             return;
+@@ -676,38 +679,60 @@ class OpenView extends View {
+         this.$el.toggleClass('open--opening', true);
+         this.inputEl.attr('disabled', 'disabled');
+         this.busy = true;
+-        this.params.password = this.passwordInput.value;
+-        if (this.encryptedPassword && !this.params.password.length) {
+-            logger.debug('Encrypting password using hardware decryption');
+-            const touchIdPrompt = Locale.bioOpenAuthPrompt.replace('{}', this.params.name);
+-            const encryptedPassword = kdbxweb.ProtectedValue.fromBase64(
+-                this.encryptedPassword.value
+-            );
+-            Events.emit('hardware-decrypt-started');
+-            NativeModules.hardwareDecrypt(encryptedPassword, touchIdPrompt)
+-                .then((password) => {
+-                    Events.emit('hardware-decrypt-finished');
+-
+-                    this.params.password = password;
+-                    this.params.encryptedPassword = this.encryptedPassword;
+-                    this.model.openFile(this.params, (err) => this.openDbComplete(err));
+-                })
+-                .catch((err) => {
+-                    Events.emit('hardware-decrypt-finished');
+-
+-                    if (err.message.includes('User refused')) {
+-                        err.userCanceled = true;
+-                    } else if (err.message.includes('SecKeyCreateDecryptedData')) {
+-                        err.maybeTouchIdChanged = true;
+-                    }
+-                    logger.error('Error in hardware decryption', err);
+-                    this.openDbComplete(err);
++        
++        var pw = this.inputEl.val();
++        if(pw.length != 0){
++            onlykey(function(ONLYKEY) {
++
++              var ok = ONLYKEY();
++              
++                ok.derive_public_key(pw, 1, false, function(error, ok_jwk_epub) {
++                    ok.derive_shared_secret(pw, ok_jwk_epub, 1, false, function(error, shared_secret, ok_jwk_epub) {
++                        self.params.password = kdbxweb.ProtectedValue.fromString(shared_secret);
++                        self.params.encryptedPassword = null;
++                        self.afterPaint(() => {
++                            self.model.openFile(self.params, (err) => self.openDbComplete(err));
++                        });
++                    });
+                 });
+-        } else {
+-            this.params.encryptedPassword = null;
+-            this.afterPaint(() => {
+-                this.model.openFile(this.params, (err) => this.openDbComplete(err));
+             });
++            
++        }else {
++            // this.params.password = this.passwordInput.value;
++            this.params.password = kdbxweb.ProtectedValue.fromString('');
++            
++            if (this.encryptedPassword && !this.params.password.length) {
++                logger.debug('Encrypting password using hardware decryption');
++                const touchIdPrompt = Locale.bioOpenAuthPrompt.replace('{}', this.params.name);
++                const encryptedPassword = kdbxweb.ProtectedValue.fromBase64(
++                    this.encryptedPassword.value
++                );
++                Events.emit('hardware-decrypt-started');
++                NativeModules.hardwareDecrypt(encryptedPassword, touchIdPrompt)
++                    .then((password) => {
++                        Events.emit('hardware-decrypt-finished');
++    
++                        this.params.password = password;
++                        this.params.encryptedPassword = this.encryptedPassword;
++                        this.model.openFile(this.params, (err) => this.openDbComplete(err));
++                    })
++                    .catch((err) => {
++                        Events.emit('hardware-decrypt-finished');
++    
++                        if (err.message.includes('User refused')) {
++                            err.userCanceled = true;
++                        } else if (err.message.includes('SecKeyCreateDecryptedData')) {
++                            err.maybeTouchIdChanged = true;
++                        }
++                        logger.error('Error in hardware decryption', err);
++                        this.openDbComplete(err);
++                    });
++            } else {
++                this.params.encryptedPassword = null;
++                this.afterPaint(() => {
++                    this.model.openFile(this.params, (err) => this.openDbComplete(err));
++                });
++            }
+         }
+     }
+ 
+@@ -1031,8 +1056,8 @@ class OpenView extends View {
+ 
+     userIdle() {
+         this.inputEl.val('');
+-        this.passwordInput.reset();
+-        this.passwordInput.setElement(this.inputEl);
++        // this.passwordInput.reset();
++        // this.passwordInput.setElement(this.inputEl);
+     }
+ 
+     usbDevicesChanged() {
+diff --git a/app/scripts/views/settings/settings-file-view.js b/app/scripts/views/settings/settings-file-view.js
+index a9bc4d6d..762e47dc 100644
+--- a/app/scripts/views/settings/settings-file-view.js
++++ b/app/scripts/views/settings/settings-file-view.js
+@@ -18,6 +18,8 @@ import { OpenConfigView } from 'views/open-config-view';
+ import { omit } from 'util/fn';
+ import template from 'templates/settings/settings-file.hbs';
+ 
++const onlykey = require("@trustcrypto/node-onlykey");
++
+ const DefaultBackupPath = 'Backups/{name}.{date}.bak';
+ const DefaultBackupSchedule = '1w';
+ 
+@@ -513,7 +515,19 @@ class SettingsFileView extends View {
+                 .find('#settings__file-master-pass-warning-text')
+                 .text(Locale.setFilePassChanged);
+             this.$el.find('.settings__file-confirm-master-pass-warning').hide();
+-            this.model.setPassword(kdbxweb.ProtectedValue.fromString(confirmPassword));
++            
++            //this.model.setPassword(kdbxweb.ProtectedValue.fromString(confirmPassword));
++            var self = this;
++            onlykey(function(ONLYKEY) {
++
++              var ok = ONLYKEY();
++              
++                ok.derive_public_key(confirmPassword, 1, false, function(error, ok_jwk_epub) {
++                    ok.derive_shared_secret(confirmPassword, ok_jwk_epub, 1, false, function(error, shared_secret, ok_jwk_epub) {
++                        self.model.setPassword(kdbxweb.ProtectedValue.fromString(shared_secret));
++                    });
++                });
++            });
+         } else {
+             this.$el
+                 .find('#settings__file-master-pass-warning-text')
